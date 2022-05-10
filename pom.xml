@@ -71,6 +71,8 @@
     <module>tests</module>
     <module>native-io</module>
     <module>testtools</module>
+    <!-- wrapper to collect JaCoCo's reports -->
+    <module>collector-module</module>
   </modules>
   <mailingLists>
     <mailingList>
@@ -1057,6 +1059,20 @@
         <artifactId>exec-maven-plugin</artifactId>
         <version>${exec-maven-plugin.version}</version>
       </plugin>
+      <!-- JaCoCo plugin -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>report</id>
+            <goals>
+              <goal>report-aggregate</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin> 
     </plugins>
   </build>
   <profiles>
