@@ -31,7 +31,7 @@
   <dependencies>
     <dependency>
       <groupId>org.apache.bookkeeper</groupId>
-      <artifactId>bookkeeper-benchmark</artifactId>
+      <artifactId>circe-checksum</artifactId>
       <version>4.16.0-SNAPSHOT</version>
     </dependency>
     <dependency>
@@ -39,6 +39,96 @@
       <artifactId>bookkeeper-common</artifactId>
       <version>4.16.0-SNAPSHOT</version>
     </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>bookkeeper-common-allocator</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <!--
+    <dependency>
+      <groupId>org.apache.bookkeeper.stats</groupId>
+      <artifactId>bookkeeper-stats</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+      <type>pom</type>
+    </dependency>
+    -->
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>bookkeeper-proto</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>bookkeeper-server</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>bookkeeper-benchmark</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <!--
+    <dependency>
+      <groupId>org.apache.bookkeeper.http</groupId>
+      <artifactId>bookkeeper-http</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>stream-storage-parent</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>bookkeeper-tools-parent</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>cpu-affinity</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper.metadata.drivers</groupId>
+      <artifactId>metadata-drivers-parent</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>bookkeeper-dist</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>shaded-parent</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>microbenchmarks</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>bookkeeper-slogger-parent</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>tests-parent</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>native-io</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+      <artifactId>testtools</artifactId>
+      <version>4.16.0-SNAPSHOT</version>
+    </dependency>
+    -->
   </dependencies>
 
   <build>
