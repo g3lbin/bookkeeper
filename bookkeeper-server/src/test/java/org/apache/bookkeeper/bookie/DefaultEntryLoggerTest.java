@@ -3,9 +3,16 @@ package org.apache.bookkeeper.bookie;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_INDEX_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_LEDGER_SCOPE;
+import static org.junit.Assert.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.function.Supplier;
@@ -20,6 +27,7 @@ import org.apache.bookkeeper.server.service.StatsProviderService;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.IOUtils;
+import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
@@ -46,37 +54,44 @@ public class DefaultEntryLoggerTest {
 	LedgerManager ledgerManager;
 
 	private DefaultEntryLogger entryLogger;
+	private File ledgerDir;
+	private boolean validEntry;
 	// addEntryTest parameters
 	private String expectedEntry;
 	private long ledgerId;
-	private long entryId;
+	private ByteBuffer bb;
 
 	@Parameters
 	public static Collection<Object[]> data() {
 		return Arrays.asList(new Object[][] {
-			// expected, ledgerId, entryId
-			{"TEST[0,0]", 0, 0},
+			// expected, ledgerId, entry, valid entry
+			{"Keys and values must be >= 0", -1, generateEntry(-1, 0), true},
+			{"TEST[0,0]", 0, generateEntry(0, 0), true},
+			{"TEST[1,0]", 1, generateEntry(1, 0), true},
+			{null, 1, null, false},
+			{"Invalid entry", 1, generateInvalidEntry("Invalid entry"), false},
 		});
 	}
 
-	public DefaultEntryLoggerTest(String expectedEntry, long ledgerId, long entryId) throws Exception {
-		configure(expectedEntry, entryId, ledgerId);
+	public DefaultEntryLoggerTest(String expectedEntry, long ledgerId, ByteBuffer bb, boolean validEntry) throws Exception {
+		configure(expectedEntry, ledgerId, bb, validEntry);
 	}
 
-	public void configure(String expectedEntry, long ledgerId, long entryId) throws Exception {
+	public void configure(String expectedEntry, long ledgerId, ByteBuffer bb, boolean validEntry) throws Exception {
 		this.expectedEntry = expectedEntry;
 		this.ledgerId = ledgerId;
-		this.entryId = entryId;
-		// build a bookie
+		this.bb = bb;
+		this.validEntry = validEntry;
+		
 		ServerConfiguration conf = new ServerConfiguration();
+		// build a bookie
 		BookieImpl bookie = bookieBuilder(conf);
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
-
 	}
 
 	private BookieImpl bookieBuilder(ServerConfiguration conf) throws Exception {
-		File ledgerDir = IOUtils.createTempDir("bkTest", ".dir");
+		ledgerDir = IOUtils.createTempDir("bkTest", ".dir");
         conf.setLedgerStorageClass(InterleavedLedgerStorage.class.getName());
         conf.setJournalDirName(ledgerDir.toString());
         conf.setLedgerDirNames(new String[] { ledgerDir.getAbsolutePath() });
@@ -100,13 +115,20 @@ public class DefaultEntryLoggerTest {
 						      bookieStats, allocator, bookieServiceInfoProvider);
 	}
 
-    private static ByteBuf generateEntry(long ledger, long entry) {
+    private static ByteBuffer generateEntry(long ledger, long entry) {
         byte[] data = generateDataString(ledger, entry).getBytes();
         ByteBuf bb = Unpooled.buffer(8 + 8 + data.length);
         bb.writeLong(ledger);
         bb.writeLong(entry);
         bb.writeBytes(data);
-        return bb;
+        return bb.nioBuffer();
+    }
+    
+    private static ByteBuffer generateInvalidEntry(String text) {
+        byte[] data = text.getBytes();
+        ByteBuf bb = Unpooled.buffer(data.length);
+        bb.writeBytes(data);
+        return bb.nioBuffer();
     }
     
     private static String generateDataString(long ledgerId, long entryId) {
@@ -114,18 +136,29 @@ public class DefaultEntryLoggerTest {
     }
 
 	@Test
-	public void addEntryTest() throws Exception {
+	public void addEntryTest() throws IOException {
 		// add entry
-		long location = entryLogger.addEntry(ledgerId, generateEntry(ledgerId, entryId).nioBuffer());
-        entryLogger.flush();
-        // verify written entry
-        ByteBuf retrievedEntry = entryLogger.readEntry(ledgerId, entryId, location);
-        retrievedEntry.readLong();
-        retrievedEntry.readLong();
-        byte[] data = new byte[retrievedEntry.readableBytes()];
-        retrievedEntry.readBytes(data);
-        retrievedEntry.release();
-        assertEquals(expectedEntry, new String(data));
+		if (ledgerId < 0) {
+			Exception e = assertThrows(IllegalArgumentException.class,
+									   () -> entryLogger.addEntry(ledgerId, bb));
+			assertEquals(expectedEntry, e.getMessage());
+		} else if (bb == null) {
+			assertThrows(NullPointerException.class,
+						 () -> entryLogger.addEntry(ledgerId, bb));
+		} else {
+			entryLogger.addEntry(ledgerId, bb);
+			entryLogger.flush();
+			// verify written entry
+			File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
+			BufferedReader br = new BufferedReader(new FileReader(fileLog));
+			String ledgerContent = br.readLine();
+			br.close();
+			if (validEntry) {
+				assertTrue(ledgerContent.contains(expectedEntry));
+			} else {
+				assertFalse(ledgerContent.contains(expectedEntry));
+			}
+		}
 	}
 	
 	@After
@@ -133,6 +166,7 @@ public class DefaultEntryLoggerTest {
         if (null != this.entryLogger) {
             entryLogger.close();
         }
+        FileUtils.deleteDirectory(ledgerDir);
 	}
 
 //	@Test
@@ -140,4 +174,12 @@ public class DefaultEntryLoggerTest {
 //        EntryLogMetadata entryLogMeta =  defEntryLog.extractEntryLogMetadataFromIndex(entryLogId);
 //        assertEquals(expectedMeta, entryLogMeta.toString());
 //    }
+	
+//	  retrievedEntry = entryLogger.readEntry(ledgerId, 0, location);
+//    retrievedEntry.readLong();
+//    retrievedEntry.readLong();
+//    byte[] data = new byte[retrievedEntry.readableBytes()];
+//    retrievedEntry.readBytes(data);
+//    retrievedEntry.release();
+//    assertEquals(expectedEntry, new String(data));
 }
