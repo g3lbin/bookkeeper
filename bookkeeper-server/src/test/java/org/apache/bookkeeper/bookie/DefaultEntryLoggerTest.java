@@ -60,11 +60,11 @@ public class DefaultEntryLoggerTest {
 	private DefaultEntryLogger entryLogger;
 	private File ledgerDir;
 	private Type type;
+	private boolean validParam;
 	
 	// common test parameters
 	private String expectedEntry;
 	private long ledgerId;
-	private boolean validParam;
 
 	// addEntryTest parameters
 	private ByteBuffer bb;
@@ -72,7 +72,7 @@ public class DefaultEntryLoggerTest {
 	// readEntryTest parameters
 	private long entryId;
 	private Long entryLocation;
-
+	// helpful
 	private long realLocation = -1;
 
 	@Parameters
@@ -88,9 +88,9 @@ public class DefaultEntryLoggerTest {
 			{Type.READ_ENTRY, null, Long.valueOf(-1), null, true, Long.valueOf(0), null},
 			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, true, Long.valueOf(0), null},
 			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(-1), null},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(0), Long.valueOf(0)},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(0), Long.valueOf(1)},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(0), Long.valueOf(-1)},
+			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(1), Long.valueOf(0)},
+			{Type.READ_ENTRY, null, Long.valueOf(1), null, true, Long.valueOf(0), Long.valueOf(1)},
+			{Type.READ_ENTRY, null, Long.valueOf(1), null, true, Long.valueOf(1), Long.valueOf(-1)},
 		});
 	}
 	
@@ -132,10 +132,10 @@ public class DefaultEntryLoggerTest {
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
 		if (validParam) {
-			// add entry
 			// avoid addEntry method exceptions
 			ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
 			entryId = (entryId < 0) ? -entryId : entryId;
+			// add entry
 			ByteBuffer bb = generateEntry(ledgerId.longValue(), entryId.longValue());
 			this.realLocation = entryLogger.addEntry(ledgerId.longValue(), bb);
 			entryLogger.flush();
