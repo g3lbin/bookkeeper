@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -45,7 +46,7 @@ import io.netty.buffer.Unpooled;
 @RunWith (value=Parameterized.class)
 public class DefaultEntryLoggerTest {
 	
-	enum Type {ADD_ENTRY, READ_ENTRY};
+	enum Type {ADD_ENTRY, READ_ENTRY, EXTRACT_METADATA};
 
 	@Rule public MockitoRule rule = MockitoJUnit.rule();
 
@@ -63,7 +64,7 @@ public class DefaultEntryLoggerTest {
 	private boolean validParam;
 	
 	// common test parameters
-	private String expectedEntry;
+	private String expected;
 	private long ledgerId;
 
 	// addEntryTest parameters
@@ -74,38 +75,50 @@ public class DefaultEntryLoggerTest {
 	private Long entryLocation;
 	// helpful
 	private long realLocation = -1;
+	
+	// extractEntryLogMetadataFromIndexTest parameters
+	private long entryLogId;
+	// helpful
+	private long realEntryLogId;
 
 	@Parameters
 	public static Collection<Object[]> data() {
 		return Arrays.asList(new Object[][] {
-			// type, expected, ledgerId, entry, valid param, null, null
-			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), generateEntry(-1, 0), true, null, null},
-			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), generateEntry(0, 0), true, null, null},
-			{Type.ADD_ENTRY, "TEST[1,0]", Long.valueOf(1), generateEntry(1, 0), true, null, null},
-			{Type.ADD_ENTRY, null, Long.valueOf(1), null, false, null, null},
-			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), generateInvalidParam("Invalid entry"), false, null, null},
-			// type, expected, ledgerId, null, valid param, entryId, entry location
-			{Type.READ_ENTRY, null, Long.valueOf(-1), null, true, Long.valueOf(0), null},
-			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, true, Long.valueOf(0), null},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(-1), null},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(1), Long.valueOf(0)},
-			{Type.READ_ENTRY, null, Long.valueOf(1), null, true, Long.valueOf(0), Long.valueOf(1)},
-			{Type.READ_ENTRY, null, Long.valueOf(1), null, true, Long.valueOf(1), Long.valueOf(-1)},
+			// type, expected, ledgerId, entry, valid param, null, null, null
+			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), generateEntry(-1, 0), true, null, null, null},
+			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), generateEntry(0, 0), true, null, null, null},
+			{Type.ADD_ENTRY, "TEST[1,0]", Long.valueOf(1), generateEntry(1, 0), true, null, null, null},
+			{Type.ADD_ENTRY, null, Long.valueOf(1), null, false, null, null, null},
+			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), generateInvalidParam("Invalid entry"), false, null, null, null},
+			// type, expected, ledgerId, null, true, entryId, entry location, null
+			{Type.READ_ENTRY, null, Long.valueOf(-1), null, true, Long.valueOf(0), null, null},
+			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, true, Long.valueOf(0), null, null},
+			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(-1), null, null},
+			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(1), Long.valueOf(0), null},
+			{Type.READ_ENTRY, null, Long.valueOf(1), null, true, Long.valueOf(0), Long.valueOf(1), null},
+			{Type.READ_ENTRY, null, Long.valueOf(1), null, true, Long.valueOf(1), Long.valueOf(-1), null},
+			// type, expected, null, null, true, null, null, entryLogId
+			{Type.EXTRACT_METADATA, null, null, null, true, null, null, Long.valueOf(-1)},
+			{Type.EXTRACT_METADATA, "{ totalSize = 29, remainingSize = 29, ledgersMap = ConcurrentLongLongHashMap{0 => 29} }",
+					null, null, true, null, null, Long.valueOf(0)},
+			{Type.EXTRACT_METADATA, null, null, null, true, null, null, Long.valueOf(1)},
 		});
 	}
 	
-	public DefaultEntryLoggerTest(Type type, String expectedEntry, Long ledgerId, ByteBuffer bb,
-								  boolean validParam, Long entryId, Long entryLocation) throws Exception {
+	public DefaultEntryLoggerTest(Type type, String expected, Long ledgerId, ByteBuffer bb, 
+			boolean validParam, Long entryId, Long entryLocation, Long entryLogId) throws Exception {
 		if (type == Type.ADD_ENTRY)
-			configure(type, expectedEntry, ledgerId, bb, validParam);
+			configure(type, expected, ledgerId, bb, validParam);
+		else if (type == Type.READ_ENTRY)
+			configure(type, expected, ledgerId, validParam, entryId, entryLocation);
 		else
-			configure(type, expectedEntry, ledgerId, validParam, entryId, entryLocation);
+			configure(type, expected, entryLogId);
 	}
 
-	public void configure(Type type, String expectedEntry, Long ledgerId,
+	public void configure(Type type, String expected, Long ledgerId,
 						  ByteBuffer bb, boolean validParam) throws Exception {
 		this.type = type;
-		this.expectedEntry = expectedEntry;
+		this.expected = expected;
 		this.ledgerId = ledgerId.longValue();
 		this.bb = bb;
 		this.validParam = validParam;
@@ -117,10 +130,10 @@ public class DefaultEntryLoggerTest {
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
 	}
 	
-	public void configure(Type type, String expectedEntry, Long ledgerId, boolean validParam,
-			  Long entryId, Long entryLocation) throws Exception {
+	public void configure(Type type, String expected, Long ledgerId,
+			boolean validParam, Long entryId, Long entryLocation) throws Exception {
 		this.type = type;
-		this.expectedEntry = expectedEntry;
+		this.expected = expected;
 		this.ledgerId = ledgerId.longValue();
 		this.entryId = entryId.longValue();
 		this.validParam = validParam;
@@ -137,9 +150,30 @@ public class DefaultEntryLoggerTest {
 			entryId = (entryId < 0) ? -entryId : entryId;
 			// add entry
 			ByteBuffer bb = generateEntry(ledgerId.longValue(), entryId.longValue());
-			this.realLocation = entryLogger.addEntry(ledgerId.longValue(), bb);
+			realLocation = entryLogger.addEntry(ledgerId.longValue(), bb);
 			entryLogger.flush();
 		}
+	}
+	
+	private void configure(Type type, String expected, Long entryLogId) throws Exception {
+		this.type = type;
+		this.expected = expected;
+		this.entryLogId = entryLogId.longValue();
+		
+
+		ServerConfiguration conf = new ServerConfiguration();
+		// build a bookie
+		BookieImpl bookie = bookieBuilder(conf);
+		// instance the class under test
+		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
+		// add entry "TEST[0,0]"
+		realLocation = entryLogger.addEntry(0, generateEntry(0, 0));
+		entryLogger.flush();
+		// create log
+		EntryLogManagerBase entryLogManager = (EntryLogManagerBase) entryLogger.getEntryLogManager();
+        entryLogManager.createNewLog(ledgerId);
+        entryLogManager.flush();
+        realEntryLogId = DefaultEntryLogger.logIdForOffset(realLocation);
 	}
 
 	private BookieImpl bookieBuilder(ServerConfiguration conf) throws Exception {
@@ -194,7 +228,7 @@ public class DefaultEntryLoggerTest {
 		if (ledgerId < 0) {
 			Exception e = assertThrows(IllegalArgumentException.class,
 									   () -> entryLogger.addEntry(ledgerId, bb));
-			assertEquals(expectedEntry, e.getMessage());
+			assertEquals(expected, e.getMessage());
 		} else if (bb == null) {
 			assertThrows(NullPointerException.class,
 						 () -> entryLogger.addEntry(ledgerId, bb));
@@ -207,9 +241,9 @@ public class DefaultEntryLoggerTest {
 			String ledgerContent = br.readLine();
 			br.close();
 			if (validParam) {
-				assertTrue(ledgerContent.contains(expectedEntry));
+				assertTrue(ledgerContent.contains(expected));
 			} else {
-				assertFalse(ledgerContent.contains(expectedEntry));
+				assertFalse(ledgerContent.contains(expected));
 			}
 		}
 	}
@@ -235,7 +269,7 @@ public class DefaultEntryLoggerTest {
 		    byte[] data = new byte[retrievedEntry.readableBytes()];
 		    retrievedEntry.readBytes(data);
 		    retrievedEntry.release();
-		    assertEquals(expectedEntry, new String(data));
+		    assertEquals(expected, new String(data));
 		}
 	}
 	
@@ -247,10 +281,21 @@ public class DefaultEntryLoggerTest {
         FileUtils.deleteDirectory(ledgerDir);
 	}
 
-//	@Test
-//    public void extractEntryLogMetadataFromIndexTest() {
-//        EntryLogMetadata entryLogMeta =  defEntryLog.extractEntryLogMetadataFromIndex(entryLogId);
-//        assertEquals(expectedMeta, entryLogMeta.toString());
-//    }
+	@Test
+    public void extractEntryLogMetadataFromIndexTest() throws IOException {
+		assumeTrue(type == Type.EXTRACT_METADATA);
+		// in configure() we create a new log with id 0L
+		if (entryLogId == realEntryLogId) {
+	        EntryLogMetadata entryLogMeta =  entryLogger.extractEntryLogMetadataFromIndex(entryLogId);
+	        assertEquals(expected, entryLogMeta.toString());
+	    // when we add an entry the files '0.log' and '1.log' are created
+		} else if (entryLogId == realEntryLogId + 1) {
+			assertThrows(IOException.class,
+				     	 () -> entryLogger.extractEntryLogMetadataFromIndex(entryLogId));
+		} else {
+			assertThrows(FileNotFoundException.class,
+			     	 	 () -> entryLogger.extractEntryLogMetadataFromIndex(entryLogId));
+		}
+    }
 
 }
