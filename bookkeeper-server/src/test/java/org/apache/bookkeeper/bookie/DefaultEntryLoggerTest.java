@@ -85,43 +85,43 @@ public class DefaultEntryLoggerTest {
 	public static Collection<Object[]> data() {
 		return Arrays.asList(new Object[][] {
 			// type, expected, ledgerId, entry, valid param, null, null, null
-			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), generateEntry(-1, 0), true, null, null, null},
-			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), generateEntry(0, 0), true, null, null, null},
-			{Type.ADD_ENTRY, "TEST[1,0]", Long.valueOf(1), generateEntry(1, 0), true, null, null, null},
-			{Type.ADD_ENTRY, null, Long.valueOf(1), null, false, null, null, null},
-			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), generateInvalidParam("Invalid entry"), false, null, null, null},
-			// type, expected, ledgerId, null, true, entryId, entry location, null
-			{Type.READ_ENTRY, null, Long.valueOf(-1), null, true, Long.valueOf(0), null, null},
-			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, true, Long.valueOf(0), null, null},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(-1), null, null},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, true, Long.valueOf(1), Long.valueOf(0), null},
-			{Type.READ_ENTRY, null, Long.valueOf(1), null, true, Long.valueOf(0), Long.valueOf(1), null},
-			{Type.READ_ENTRY, null, Long.valueOf(1), null, true, Long.valueOf(1), Long.valueOf(-1), null},
-			// type, expected, null, null, true, null, null, entryLogId
-			{Type.EXTRACT_METADATA, null, null, null, true, null, null, Long.valueOf(-1)},
+			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), generateEntry(-1, 0), Boolean.valueOf(true), null, null, null},
+			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), generateEntry(0, 0), Boolean.valueOf(true), null, null, null},
+			{Type.ADD_ENTRY, "TEST[1,0]", Long.valueOf(1), generateEntry(1, 0), Boolean.valueOf(true), null, null, null},
+			{Type.ADD_ENTRY, null, Long.valueOf(1), null, Boolean.valueOf(false), null, null, null},
+			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), generateInvalidParam("Invalid entry"), Boolean.valueOf(false), null, null, null},
+			// type, expected, ledgerId, null, null, entryId, entry location, null
+			{Type.READ_ENTRY, null, Long.valueOf(-1), null, null, Long.valueOf(0), null, null},
+			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, null, Long.valueOf(0), null, null},
+			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(-1), null, null},
+			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(1), Long.valueOf(0), null},
+			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(0), Long.valueOf(1), null},
+			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(1), Long.valueOf(-1), null},
+			// type, expected, null, null, null, null, null, entryLogId
+			{Type.EXTRACT_METADATA, null, null, null, null, null, null, Long.valueOf(-1)},
 			{Type.EXTRACT_METADATA, "{ totalSize = 29, remainingSize = 29, ledgersMap = ConcurrentLongLongHashMap{0 => 29} }",
-					null, null, true, null, null, Long.valueOf(0)},
-			{Type.EXTRACT_METADATA, null, null, null, true, null, null, Long.valueOf(1)},
+					null, null, null, null, null, Long.valueOf(0)},
+			{Type.EXTRACT_METADATA, null, null, null, null, null, null, Long.valueOf(1)},
 		});
 	}
 	
 	public DefaultEntryLoggerTest(Type type, String expected, Long ledgerId, ByteBuffer bb, 
-			boolean validParam, Long entryId, Long entryLocation, Long entryLogId) throws Exception {
+			Boolean validParam, Long entryId, Long entryLocation, Long entryLogId) throws Exception {
 		if (type == Type.ADD_ENTRY)
 			configure(type, expected, ledgerId, bb, validParam);
 		else if (type == Type.READ_ENTRY)
-			configure(type, expected, ledgerId, validParam, entryId, entryLocation);
+			configure(type, expected, ledgerId, entryId, entryLocation);
 		else
 			configure(type, expected, entryLogId);
 	}
 
 	public void configure(Type type, String expected, Long ledgerId,
-						  ByteBuffer bb, boolean validParam) throws Exception {
+						  ByteBuffer bb, Boolean validParam) throws Exception {
 		this.type = type;
 		this.expected = expected;
 		this.ledgerId = ledgerId.longValue();
 		this.bb = bb;
-		this.validParam = validParam;
+		this.validParam = validParam.booleanValue();
 		
 		ServerConfiguration conf = new ServerConfiguration();
 		// build a bookie
@@ -131,12 +131,11 @@ public class DefaultEntryLoggerTest {
 	}
 	
 	public void configure(Type type, String expected, Long ledgerId,
-			boolean validParam, Long entryId, Long entryLocation) throws Exception {
+			Long entryId, Long entryLocation) throws Exception {
 		this.type = type;
 		this.expected = expected;
 		this.ledgerId = ledgerId.longValue();
 		this.entryId = entryId.longValue();
-		this.validParam = validParam;
 		this.entryLocation = entryLocation;
 		
 		ServerConfiguration conf = new ServerConfiguration();
@@ -144,15 +143,13 @@ public class DefaultEntryLoggerTest {
 		BookieImpl bookie = bookieBuilder(conf);
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
-		if (validParam) {
-			// avoid addEntry method exceptions
-			ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
-			entryId = (entryId < 0) ? -entryId : entryId;
-			// add entry
-			ByteBuffer bb = generateEntry(ledgerId.longValue(), entryId.longValue());
-			realLocation = entryLogger.addEntry(ledgerId.longValue(), bb);
-			entryLogger.flush();
-		}
+		// avoid addEntry method exceptions
+		ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
+		entryId = (entryId < 0) ? -entryId : entryId;
+		// add entry
+		ByteBuffer bb = generateEntry(ledgerId.longValue(), entryId.longValue());
+		realLocation = entryLogger.addEntry(ledgerId.longValue(), bb);
+		entryLogger.flush();
 	}
 	
 	private void configure(Type type, String expected, Long entryLogId) throws Exception {
@@ -272,14 +269,6 @@ public class DefaultEntryLoggerTest {
 		    assertEquals(expected, new String(data));
 		}
 	}
-	
-	@After
-    public void cleanUp() throws Exception {
-        if (null != this.entryLogger) {
-            entryLogger.close();
-        }
-        FileUtils.deleteDirectory(ledgerDir);
-	}
 
 	@Test
     public void extractEntryLogMetadataFromIndexTest() throws IOException {
@@ -297,5 +286,17 @@ public class DefaultEntryLoggerTest {
 			     	 	 () -> entryLogger.extractEntryLogMetadataFromIndex(entryLogId));
 		}
     }
+	
+	@After
+    public void cleanUp() throws Exception {
+		try {
+			if (null != this.entryLogger) {
+	            entryLogger.close();
+	        }
+	        FileUtils.deleteDirectory(ledgerDir);
+		} catch(Exception e) {
+
+		}
+	}
 
 }
