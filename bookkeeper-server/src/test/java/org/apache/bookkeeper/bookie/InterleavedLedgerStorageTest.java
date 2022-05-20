@@ -3,6 +3,7 @@ package org.apache.bookkeeper.bookie;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_INDEX_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_LEDGER_SCOPE;
+import static org.junit.Assume.assumeTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -10,6 +11,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Optional;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -25,39 +27,77 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
+import com.google.common.util.concurrent.RateLimiter;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 
 @RunWith (value=Parameterized.class)
 public class InterleavedLedgerStorageTest {
 
+	enum Type {GET_ENTRY, CONSISTENCY_CHECK};
+
 	private InterleavedLedgerStorage storage;
 	private ByteBuf entry;
 	private File ledgerDir;
+	private Type type;
 	private String expected;
 
+	// getEntry parameters
 	private long ledgerId;
 	private long entryId;
+	
+	// localConsistencyCheck parameters
+	private Optional<RateLimiter> rateLimiter;
 	
 	@Parameters
 	public static Collection<Object[]> data() {
 		return Arrays.asList(new Object[][] {
-			{null, -1, 0},
-			{"TEST[0,1]", 0, 1},
-			{"TEST[1,1]", 1, -1},
+			// type, expected, ledgerId, entryId
+			{Type.GET_ENTRY, null, Long.valueOf(-1), Long.valueOf(0), null},
+			{Type.GET_ENTRY, "TEST[0,1]", Long.valueOf(0), Long.valueOf(1),  null},
+			{Type.GET_ENTRY, "TEST[1,1]", Long.valueOf(1), Long.valueOf(-1), null},
+			// type, expected, null, null, rateLimiter
+			{Type.CONSISTENCY_CHECK, "[]", null, null, null},
+			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(2))},
 		});
 	}
 	
-	public InterleavedLedgerStorageTest(String expected, long ledgerId, long entryId) throws Exception {
-		configure(expected, ledgerId, entryId);
+	public InterleavedLedgerStorageTest(Type type, String expected, Long ledgerId, Long entryId, Optional<RateLimiter> rateLimiter) throws Exception {
+		if (type == Type.GET_ENTRY)
+			configure(type, expected, ledgerId, entryId);
+		else
+			configure(type, expected, rateLimiter);
 	}
 	
-	public void configure(String expected, long ledgerId, long entryId) throws Exception {
+	public void configure(Type type, String expected, Long ledgerId, Long entryId) throws Exception {
+		this.type = type;
 		this.expected = expected;
-		this.ledgerId = ledgerId;
-		this.entryId = entryId;
+		this.ledgerId = ledgerId.longValue();
+		this.entryId = entryId.longValue();
 		
 		storage = new InterleavedLedgerStorage();
+		initializeStorage(storage);
+		
+		// avoid addEntry method exceptions
+		ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
+		entryId = (entryId < 0) ? -entryId : entryId;
+		// add entry
+		entry = EntryGenerator.generateEntry(ledgerId, entryId);
+		storage.setMasterKey(ledgerId, "testKey".getBytes());
+		storage.addEntry(entry);
+	}
+	
+	public void configure(Type type, String expected, Optional<RateLimiter> rateLimiter) throws Exception {
+		this.type = type;
+		this.expected = expected;
+		this.rateLimiter = rateLimiter;
+		
+		storage = new InterleavedLedgerStorage();
+		initializeStorage(storage);
+	}
+	
+	private void initializeStorage(InterleavedLedgerStorage storage) throws Exception {
 		// prepare for initialization
 		ledgerDir = IOUtils.createTempDir("bkTest", ".dir");
 		ServerConfiguration conf = new ServerConfiguration();
@@ -78,17 +118,11 @@ public class InterleavedLedgerStorageTest {
         ByteBufAllocator allocator = BookieResources.createAllocator(conf);
 		// initialize storage
 		storage.initialize(conf, null, ledgerDirsManager, indexDirsManager, rootStatsLogger, allocator);
-		// avoid addEntry method exceptions
-		ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
-		entryId = (entryId < 0) ? -entryId : entryId;
-		// add entry
-		entry = EntryGenerator.generateEntry(ledgerId, entryId);
-		storage.setMasterKey(ledgerId, "testKey".getBytes());
-		storage.addEntry(entry);
 	}
 	
 	@Test
 	public void getEntryTest() throws IOException {
+		assumeTrue(type == Type.GET_ENTRY);
 		if (ledgerId < 0) {
 			assertThrows(NoLedgerException.class,
 						 () -> storage.getEntry(ledgerId, entryId));
@@ -101,6 +135,12 @@ public class InterleavedLedgerStorageTest {
 		    retrievedEntry.release();
 		    assertEquals(expected, new String(data));
 		}
+	}
+	
+	@Test
+	public void localConsistencyCheckTest() throws IOException {
+		assumeTrue(type == Type.CONSISTENCY_CHECK);
+		assertEquals(expected, storage.localConsistencyCheck(rateLimiter).toString());
 	}
 	
 	@After
