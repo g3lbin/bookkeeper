@@ -41,7 +41,6 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 
 @RunWith (value=Parameterized.class)
 public class DefaultEntryLoggerTest {
@@ -85,27 +84,36 @@ public class DefaultEntryLoggerTest {
 	public static Collection<Object[]> data() {
 		return Arrays.asList(new Object[][] {
 			// type, expected, ledgerId, entry, valid param, null, null, null
-			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), generateEntry(-1, 0), Boolean.valueOf(true), null, null, null},
-			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), generateEntry(0, 0), Boolean.valueOf(true), null, null, null},
-			{Type.ADD_ENTRY, "TEST[1,0]", Long.valueOf(1), generateEntry(1, 0), Boolean.valueOf(true), null, null, null},
-			{Type.ADD_ENTRY, null, Long.valueOf(1), null, Boolean.valueOf(false), null, null, null},
-			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), generateInvalidParam("Invalid entry"), Boolean.valueOf(false), null, null, null},
+			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), EntryGenerator.create("test"), Boolean.valueOf(true), null, null, null},
+			{Type.ADD_ENTRY, "test", Long.valueOf(0), EntryGenerator.create("test"), Boolean.valueOf(true), null, null, null},
+			{Type.ADD_ENTRY, "test", Long.valueOf(1), null, Boolean.valueOf(true), null, null, null},
+			
+//			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), generateEntry(-1, 0), Boolean.valueOf(true), null, null, null},
+//			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), generateEntry(0, 0), Boolean.valueOf(true), null, null, null},
+//			{Type.ADD_ENTRY, "TEST[1,0]", Long.valueOf(1), generateEntry(1, 0), Boolean.valueOf(true), null, null, null},
+//			{Type.ADD_ENTRY, null, Long.valueOf(1), null, Boolean.valueOf(false), null, null, null},
+//			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), generateInvalidParam("Invalid entry"), Boolean.valueOf(false), null, null, null},
 			// type, expected, ledgerId, null, null, entryId, entry location, null
-			{Type.READ_ENTRY, null, Long.valueOf(-1), null, null, Long.valueOf(0), null, null},
-			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, null, Long.valueOf(0), null, null},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(-1), null, null},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(1), Long.valueOf(0), null},
-			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(0), Long.valueOf(1), null},
-			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(1), Long.valueOf(-1), null},
+			{Type.READ_ENTRY, null, Long.valueOf(-1), null, null, Long.valueOf(0), Long.valueOf(-1), null},
+			{Type.READ_ENTRY, "Read past EOF", Long.valueOf(0), null, null, Long.valueOf(0), null, null},
+			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(-1), Long.valueOf(0), null},
+			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(1), Long.valueOf(1), null},
+			
+//			{Type.READ_ENTRY, null, Long.valueOf(-1), null, null, Long.valueOf(0), null, null},
+//			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, null, Long.valueOf(0), null, null},
+//			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(-1), null, null},
+//			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(1), Long.valueOf(0), null},
+//			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(0), Long.valueOf(1), null},
+//			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(1), Long.valueOf(-1), null},
 			// type, expected, null, null, null, null, null, entryLogId
 			{Type.EXTRACT_METADATA, null, null, null, null, null, null, Long.valueOf(-1)},
-			{Type.EXTRACT_METADATA, "{ totalSize = 29, remainingSize = 29, ledgersMap = ConcurrentLongLongHashMap{0 => 29} }",
+			{Type.EXTRACT_METADATA, "{ totalSize = 8, remainingSize = 8, ledgersMap = ConcurrentLongLongHashMap{0 => 8} }",
 					null, null, null, null, null, Long.valueOf(0)},
 			{Type.EXTRACT_METADATA, null, null, null, null, null, null, Long.valueOf(1)},
 		});
 	}
 	
-	public DefaultEntryLoggerTest(Type type, String expected, Long ledgerId, ByteBuffer bb, 
+	public DefaultEntryLoggerTest(Type type, String expected, Long ledgerId, ByteBuf bb, 
 			Boolean validParam, Long entryId, Long entryLocation, Long entryLogId) throws Exception {
 		if (type == Type.ADD_ENTRY)
 			configure(type, expected, ledgerId, bb, validParam);
@@ -116,11 +124,11 @@ public class DefaultEntryLoggerTest {
 	}
 
 	public void configure(Type type, String expected, Long ledgerId,
-						  ByteBuffer bb, Boolean validParam) throws Exception {
+						  ByteBuf bb, Boolean validParam) throws Exception {
 		this.type = type;
 		this.expected = expected;
 		this.ledgerId = ledgerId.longValue();
-		this.bb = bb;
+		this.bb = (bb == null) ? null : bb.nioBuffer();
 		this.validParam = validParam.booleanValue();
 		
 		ServerConfiguration conf = new ServerConfiguration();
@@ -147,7 +155,8 @@ public class DefaultEntryLoggerTest {
 		ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
 		entryId = (entryId < 0) ? -entryId : entryId;
 		// add entry
-		ByteBuffer bb = generateEntry(ledgerId.longValue(), entryId.longValue());
+//		ByteBuffer bb = EntryGenerator.create(ledgerId.longValue(), entryId.longValue()).nioBuffer();
+		ByteBuffer bb = EntryGenerator.create("test").nioBuffer();
 		realLocation = entryLogger.addEntry(ledgerId.longValue(), bb);
 		entryLogger.flush();
 	}
@@ -164,7 +173,8 @@ public class DefaultEntryLoggerTest {
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
 		// add entry "TEST[0,0]"
-		realLocation = entryLogger.addEntry(0, generateEntry(0, 0));
+//		realLocation = entryLogger.addEntry(0, EntryGenerator.create(0, 0).nioBuffer());
+		realLocation = entryLogger.addEntry(0, EntryGenerator.create("test").nioBuffer());
 		entryLogger.flush();
 		// create log
 		EntryLogManagerBase entryLogManager = (EntryLogManagerBase) entryLogger.getEntryLogManager();
@@ -197,26 +207,6 @@ public class DefaultEntryLoggerTest {
         return new BookieImpl(conf, rm, storage, diskChecker, ledgerDirsManager, indexDirsManager,
 						      bookieStats, allocator, bookieServiceInfoProvider);
 	}
-
-    private static ByteBuffer generateEntry(long ledger, long entry) {
-        byte[] data = generateDataString(ledger, entry).getBytes();
-        ByteBuf bb = Unpooled.buffer(8 + 8 + data.length);
-        bb.writeLong(ledger);
-        bb.writeLong(entry);
-        bb.writeBytes(data);
-        return bb.nioBuffer();
-    }
-    
-    private static ByteBuffer generateInvalidParam(String text) {
-        byte[] data = text.getBytes();
-        ByteBuf bb = Unpooled.buffer(data.length);
-        bb.writeBytes(data);
-        return bb.nioBuffer();
-    }
-    
-    private static String generateDataString(long ledgerId, long entryId) {
-        return ("TEST[" + ledgerId + "," + entryId + "]");
-    }
 
 	@Test
 	public void addEntryTest() throws IOException {
@@ -260,13 +250,16 @@ public class DefaultEntryLoggerTest {
 				assertThrows(IllegalArgumentException.class,
 							 () -> entryLogger.readEntry(ledgerId, entryId, location));
 		} else {
-			ByteBuf retrievedEntry = entryLogger.readEntry(ledgerId, entryId, realLocation);
-		    assertEquals(ledgerId, retrievedEntry.readLong());
-		    assertEquals(entryId, retrievedEntry.readLong());
-		    byte[] data = new byte[retrievedEntry.readableBytes()];
-		    retrievedEntry.readBytes(data);
-		    retrievedEntry.release();
-		    assertEquals(expected, new String(data));
+			Exception e = assertThrows(IOException.class,
+									   () -> entryLogger.readEntry(ledgerId, entryId, realLocation));
+			assertEquals(expected, e.getMessage());
+//			ByteBuf retrievedEntry = entryLogger.readEntry(ledgerId, entryId, realLocation);
+//		    assertEquals(ledgerId, retrievedEntry.readLong());
+//		    assertEquals(entryId, retrievedEntry.readLong());
+//		    byte[] data = new byte[retrievedEntry.readableBytes()];
+//		    retrievedEntry.readBytes(data);
+//		    retrievedEntry.release();
+//		    assertEquals(expected, new String(data));
 		}
 	}
 

@@ -5,7 +5,7 @@ import io.netty.buffer.Unpooled;
 
 public class EntryGenerator {
 
-	public static ByteBuf generateEntry(long ledger, long entry) {
+	public static ByteBuf create(long ledger, long entry) {
         byte[] data = generateDataString(ledger, entry).getBytes();
         ByteBuf bb = Unpooled.buffer(8 + 8 + data.length);
         bb.writeLong(ledger);
@@ -14,7 +14,7 @@ public class EntryGenerator {
         return bb;
     }
     
-	public static ByteBuf generateInvalidParam(String text) {
+	public static ByteBuf create(String text) {
         byte[] data = text.getBytes();
         ByteBuf bb = Unpooled.buffer(data.length);
         bb.writeBytes(data);
