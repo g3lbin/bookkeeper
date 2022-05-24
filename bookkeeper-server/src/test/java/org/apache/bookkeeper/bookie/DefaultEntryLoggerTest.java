@@ -1,13 +1,12 @@
 package org.apache.bookkeeper.bookie;
 
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_SCOPE;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_INDEX_SCOPE;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_LEDGER_SCOPE;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -17,28 +16,19 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.function.Supplier;
 
-import org.apache.bookkeeper.common.allocator.ByteBufAllocatorWithOomHandler;
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.discover.BookieServiceInfo;
-import org.apache.bookkeeper.discover.RegistrationManager;
-import org.apache.bookkeeper.meta.LedgerManager;
-import org.apache.bookkeeper.server.conf.BookieConfiguration;
-import org.apache.bookkeeper.server.service.StatsProviderService;
-import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnit;
-import org.mockito.junit.MockitoRule;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import io.netty.buffer.ByteBuf;
 
@@ -47,14 +37,7 @@ public class DefaultEntryLoggerTest {
 	
 	enum Type {ADD_ENTRY, READ_ENTRY, EXTRACT_METADATA};
 
-	@Rule public MockitoRule rule = MockitoJUnit.rule();
-
-	@Mock
-	Supplier<BookieServiceInfo> bookieServiceInfoProvider;
-	@Mock
-	RegistrationManager rm;
-	@Mock
-	LedgerManager ledgerManager;
+	BookieImpl bookie;
 
 	// used by all tests
 	private DefaultEntryLogger entryLogger;
@@ -84,30 +67,18 @@ public class DefaultEntryLoggerTest {
 	public static Collection<Object[]> data() {
 		return Arrays.asList(new Object[][] {
 			// type, expected, ledgerId, entry, valid param, null, null, null
-			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), EntryGenerator.create("test"), Boolean.valueOf(true), null, null, null},
-			{Type.ADD_ENTRY, "test", Long.valueOf(0), EntryGenerator.create("test"), Boolean.valueOf(true), null, null, null},
-			{Type.ADD_ENTRY, "test", Long.valueOf(1), null, Boolean.valueOf(true), null, null, null},
-			
-//			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), generateEntry(-1, 0), Boolean.valueOf(true), null, null, null},
-//			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), generateEntry(0, 0), Boolean.valueOf(true), null, null, null},
-//			{Type.ADD_ENTRY, "TEST[1,0]", Long.valueOf(1), generateEntry(1, 0), Boolean.valueOf(true), null, null, null},
-//			{Type.ADD_ENTRY, null, Long.valueOf(1), null, Boolean.valueOf(false), null, null, null},
-//			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), generateInvalidParam("Invalid entry"), Boolean.valueOf(false), null, null, null},
+			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), EntryGenerator.create(-1, 0), Boolean.valueOf(true), null, null, null},
+			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), EntryGenerator.create(0, 0), Boolean.valueOf(true), null, null, null},
+			{Type.ADD_ENTRY, null, Long.valueOf(1), null, Boolean.valueOf(false), null, null, null},
+			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), EntryGenerator.create("Invalid entry"), Boolean.valueOf(false), null, null, null},
 			// type, expected, ledgerId, null, null, entryId, entry location, null
 			{Type.READ_ENTRY, null, Long.valueOf(-1), null, null, Long.valueOf(0), Long.valueOf(-1), null},
-			{Type.READ_ENTRY, "Read past EOF", Long.valueOf(0), null, null, Long.valueOf(0), null, null},
+			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, null, Long.valueOf(0), null, null},
 			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(-1), Long.valueOf(0), null},
 			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(1), Long.valueOf(1), null},
-			
-//			{Type.READ_ENTRY, null, Long.valueOf(-1), null, null, Long.valueOf(0), null, null},
-//			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, null, Long.valueOf(0), null, null},
-//			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(-1), null, null},
-//			{Type.READ_ENTRY, null, Long.valueOf(0), null, null, Long.valueOf(1), Long.valueOf(0), null},
-//			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(0), Long.valueOf(1), null},
-//			{Type.READ_ENTRY, null, Long.valueOf(1), null, null, Long.valueOf(1), Long.valueOf(-1), null},
 			// type, expected, null, null, null, null, null, entryLogId
 			{Type.EXTRACT_METADATA, null, null, null, null, null, null, Long.valueOf(-1)},
-			{Type.EXTRACT_METADATA, "{ totalSize = 8, remainingSize = 8, ledgersMap = ConcurrentLongLongHashMap{0 => 8} }",
+			{Type.EXTRACT_METADATA, "{ totalSize = 29, remainingSize = 29, ledgersMap = ConcurrentLongLongHashMap{0 => 29} }",
 					null, null, null, null, null, Long.valueOf(0)},
 			{Type.EXTRACT_METADATA, null, null, null, null, null, null, Long.valueOf(1)},
 		});
@@ -133,7 +104,7 @@ public class DefaultEntryLoggerTest {
 		
 		ServerConfiguration conf = new ServerConfiguration();
 		// build a bookie
-		BookieImpl bookie = bookieBuilder(conf);
+		prepareEnv(conf);
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
 	}
@@ -148,15 +119,15 @@ public class DefaultEntryLoggerTest {
 		
 		ServerConfiguration conf = new ServerConfiguration();
 		// build a bookie
-		BookieImpl bookie = bookieBuilder(conf);
+//		BookieImpl bookie = bookieBuilder(conf);
+		prepareEnv(conf);
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
 		// avoid addEntry method exceptions
 		ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
 		entryId = (entryId < 0) ? -entryId : entryId;
 		// add entry
-//		ByteBuffer bb = EntryGenerator.create(ledgerId.longValue(), entryId.longValue()).nioBuffer();
-		ByteBuffer bb = EntryGenerator.create("test").nioBuffer();
+		ByteBuffer bb = EntryGenerator.create(ledgerId.longValue(), entryId.longValue()).nioBuffer();
 		realLocation = entryLogger.addEntry(ledgerId.longValue(), bb);
 		entryLogger.flush();
 	}
@@ -169,12 +140,13 @@ public class DefaultEntryLoggerTest {
 
 		ServerConfiguration conf = new ServerConfiguration();
 		// build a bookie
-		BookieImpl bookie = bookieBuilder(conf);
+//		BookieImpl bookie = bookieBuilder(conf);
+		prepareEnv(conf);
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
 		// add entry "TEST[0,0]"
-//		realLocation = entryLogger.addEntry(0, EntryGenerator.create(0, 0).nioBuffer());
-		realLocation = entryLogger.addEntry(0, EntryGenerator.create("test").nioBuffer());
+		realLocation = entryLogger.addEntry(0, EntryGenerator.create(0, 0).nioBuffer());
+//		realLocation = entryLogger.addEntry(0, EntryGenerator.create("test").nioBuffer());
 		entryLogger.flush();
 		// create log
 		EntryLogManagerBase entryLogManager = (EntryLogManagerBase) entryLogger.getEntryLogManager();
@@ -182,30 +154,25 @@ public class DefaultEntryLoggerTest {
         entryLogManager.flush();
         realEntryLogId = DefaultEntryLogger.logIdForOffset(realLocation);
 	}
-
-	private BookieImpl bookieBuilder(ServerConfiguration conf) throws Exception {
+	
+	private void prepareEnv(ServerConfiguration conf) throws IOException {
 		ledgerDir = IOUtils.createTempDir("bkTest", ".dir");
         conf.setLedgerStorageClass(InterleavedLedgerStorage.class.getName());
         conf.setJournalDirName(ledgerDir.toString());
         conf.setLedgerDirNames(new String[] { ledgerDir.getAbsolutePath() });
         conf.setAdvertisedAddress("127.0.0.1");
 
-        StatsProviderService statsProviderService = new StatsProviderService(new BookieConfiguration(conf));
-        StatsLogger rootStatsLogger = statsProviderService.getStatsProvider().getStatsLogger("");
-        StatsLogger bookieStats = rootStatsLogger.scope(BOOKIE_SCOPE);
-        DiskChecker diskChecker = BookieResources.createDiskChecker(conf);
-        LedgerDirsManager ledgerDirsManager = BookieResources.createLedgerDirsManager(
-                conf, diskChecker, bookieStats.scope(LD_LEDGER_SCOPE));
-        LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
-                conf, diskChecker, bookieStats.scope(LD_INDEX_SCOPE), ledgerDirsManager);
-
-        ByteBufAllocatorWithOomHandler allocator = BookieResources.createAllocator(conf);
-        
-        LedgerStorage storage = BookieResources.createLedgerStorage(
-                conf, ledgerManager, ledgerDirsManager, indexDirsManager, bookieStats, allocator);
-        
-        return new BookieImpl(conf, rm, storage, diskChecker, ledgerDirsManager, indexDirsManager,
-						      bookieStats, allocator, bookieServiceInfoProvider);
+        bookie = mock(BookieImpl.class);
+		when(bookie.getLedgerDirsManager()).thenAnswer(new Answer<LedgerDirsManager>() {
+			@Override
+			public LedgerDirsManager answer(InvocationOnMock unused) throws Throwable {
+		        DiskChecker diskChecker = BookieResources.createDiskChecker(conf);
+		        LedgerDirsManager ledgerDirsManager = BookieResources.createLedgerDirsManager(
+		                conf, diskChecker, NullStatsLogger.INSTANCE);
+		        
+		        return ledgerDirsManager;
+			}
+		});
 	}
 
 	@Test
@@ -250,16 +217,13 @@ public class DefaultEntryLoggerTest {
 				assertThrows(IllegalArgumentException.class,
 							 () -> entryLogger.readEntry(ledgerId, entryId, location));
 		} else {
-			Exception e = assertThrows(IOException.class,
-									   () -> entryLogger.readEntry(ledgerId, entryId, realLocation));
-			assertEquals(expected, e.getMessage());
-//			ByteBuf retrievedEntry = entryLogger.readEntry(ledgerId, entryId, realLocation);
-//		    assertEquals(ledgerId, retrievedEntry.readLong());
-//		    assertEquals(entryId, retrievedEntry.readLong());
-//		    byte[] data = new byte[retrievedEntry.readableBytes()];
-//		    retrievedEntry.readBytes(data);
-//		    retrievedEntry.release();
-//		    assertEquals(expected, new String(data));
+			ByteBuf retrievedEntry = entryLogger.readEntry(ledgerId, entryId, realLocation);
+		    assertEquals(ledgerId, retrievedEntry.readLong());
+		    assertEquals(entryId, retrievedEntry.readLong());
+		    byte[] data = new byte[retrievedEntry.readableBytes()];
+		    retrievedEntry.readBytes(data);
+		    retrievedEntry.release();
+		    assertEquals(expected, new String(data));
 		}
 	}
 

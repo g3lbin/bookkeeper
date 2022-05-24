@@ -13,7 +13,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Optional;
 
-import org.apache.bookkeeper.bookie.Bookie.NoEntryException;
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.server.conf.BookieConfiguration;
@@ -59,10 +58,8 @@ public class InterleavedLedgerStorageTest {
 		return Arrays.asList(new Object[][] {
 			// type, expected, ledgerId, entryId
 			{Type.GET_ENTRY, null, Long.valueOf(-1), Long.valueOf(0), null},
-//			{Type.GET_ENTRY, "TEST[0,1]", Long.valueOf(0), Long.valueOf(1),  null},
-//			{Type.GET_ENTRY, "TEST[1,1]", Long.valueOf(1), Long.valueOf(-1), null},
-			{Type.GET_ENTRY, "Entry 1 not found in 0", Long.valueOf(0), Long.valueOf(1),  null},
-			{Type.GET_ENTRY, "Entry 0 not found in 1", Long.valueOf(1), Long.valueOf(-1), null},
+			{Type.GET_ENTRY, "TEST[0,1]", Long.valueOf(0), Long.valueOf(1),  null},
+			{Type.GET_ENTRY, "TEST[1,1]", Long.valueOf(1), Long.valueOf(-1), null},
 			// type, expected, null, null, rateLimiter
 			{Type.CONSISTENCY_CHECK, "[]", null, null, null},
 			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(2))},
@@ -85,13 +82,11 @@ public class InterleavedLedgerStorageTest {
 		try {
 			storage = new InterleavedLedgerStorage();
 			initializeStorage(storage);
-			
 			// avoid addEntry method exceptions
 			ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
 			entryId = (entryId < 0) ? -entryId : entryId;
 			// add entry
-	//		entry = EntryGenerator.create(ledgerId, entryId);
-			entry = EntryGenerator.create("test");
+			entry = EntryGenerator.create(ledgerId, entryId);
 			storage.setMasterKey(ledgerId, "testKey".getBytes());
 			storage.addEntry(entry);
 			storage.flush();
@@ -139,15 +134,13 @@ public class InterleavedLedgerStorageTest {
 			assertThrows(NoLedgerException.class,
 						 () -> storage.getEntry(ledgerId, entryId));
 		} else {
-			Exception e = assertThrows(NoEntryException.class,
-					 				   () -> storage.getEntry(ledgerId, entryId));
-			assertEquals(expected, e.getMessage());
-//			assertEquals(entry.readLong(), retrievedEntry.readLong());
-//			assertEquals(entry.readLong(), retrievedEntry.readLong());
-//			byte[] data = new byte[retrievedEntry.readableBytes()];
-//		    retrievedEntry.readBytes(data);
-//		    retrievedEntry.release();
-//		    assertEquals(expected, new String(data));
+			ByteBuf retrievedEntry = storage.getEntry(ledgerId, entryId);
+			assertEquals(entry.readLong(), retrievedEntry.readLong());
+			assertEquals(entry.readLong(), retrievedEntry.readLong());
+			byte[] data = new byte[retrievedEntry.readableBytes()];
+		    retrievedEntry.readBytes(data);
+		    retrievedEntry.release();
+		    assertEquals(expected, new String(data));
 		}
 	}
 	
