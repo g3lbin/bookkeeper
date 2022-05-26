@@ -103,7 +103,6 @@ public class DefaultEntryLoggerTest {
 		this.validParam = validParam.booleanValue();
 		
 		ServerConfiguration conf = new ServerConfiguration();
-		// build a bookie
 		prepareEnv(conf);
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
@@ -118,8 +117,6 @@ public class DefaultEntryLoggerTest {
 		this.entryLocation = entryLocation;
 		
 		ServerConfiguration conf = new ServerConfiguration();
-		// build a bookie
-//		BookieImpl bookie = bookieBuilder(conf);
 		prepareEnv(conf);
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
@@ -139,18 +136,15 @@ public class DefaultEntryLoggerTest {
 		
 
 		ServerConfiguration conf = new ServerConfiguration();
-		// build a bookie
-//		BookieImpl bookie = bookieBuilder(conf);
 		prepareEnv(conf);
 		// instance the class under test
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
 		// add entry "TEST[0,0]"
 		realLocation = entryLogger.addEntry(0, EntryGenerator.create(0, 0).nioBuffer());
-//		realLocation = entryLogger.addEntry(0, EntryGenerator.create("test").nioBuffer());
 		entryLogger.flush();
 		// create log
 		EntryLogManagerBase entryLogManager = (EntryLogManagerBase) entryLogger.getEntryLogManager();
-        entryLogManager.createNewLog(ledgerId);
+        entryLogManager.createNewLog(0);
         entryLogManager.flush();
         realEntryLogId = DefaultEntryLogger.logIdForOffset(realLocation);
 	}
@@ -252,7 +246,7 @@ public class DefaultEntryLoggerTest {
 	        }
 	        FileUtils.deleteDirectory(ledgerDir);
 		} catch(Exception e) {
-
+			// do nothing
 		}
 	}
 
