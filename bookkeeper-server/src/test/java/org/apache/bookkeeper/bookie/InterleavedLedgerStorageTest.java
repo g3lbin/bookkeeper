@@ -62,7 +62,7 @@ public class InterleavedLedgerStorageTest {
 			{Type.GET_ENTRY, "TEST[1,1]", Long.valueOf(1), Long.valueOf(-1), null},
 			// type, expected, null, null, rateLimiter
 			{Type.CONSISTENCY_CHECK, "[]", null, null, null},
-			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(2))},
+			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(1))},
 		});
 	}
 	
