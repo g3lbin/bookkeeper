@@ -15,8 +15,8 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.util.Arrays;
 import java.util.Collection;
 
@@ -69,8 +69,22 @@ public class DefaultEntryLoggerTest {
 	
 	// extractEntryLogMetadataFromIndexTest parameters
 	private long entryLogId;
+	private Long hdrVersion;
+	private Long lmLedgerId;
+	private Long lmEntryId;
+	private boolean lmSubLedgers;
+	private boolean lmOutOfBound;
 	// helpful
 	private long realEntryLogId;
+	
+	// utility functions
+	private static long L(long l) {
+		return Long.valueOf(l);
+	}
+	
+	private static boolean B(boolean b) {
+		return Boolean.valueOf(b);
+	}
 
 	@Parameters
 	public static Collection<Object[]> data() {
@@ -78,33 +92,39 @@ public class DefaultEntryLoggerTest {
 			/* README: all columns named as 'null' are not considered parameters for the corresponding test */
 
 			// type, expected, ledgerId, entry, valid param, null, null, null, null
-			{Type.ADD_ENTRY, "Keys and values must be >= 0", Long.valueOf(-1), EntryGenerator.create(-1, 0), Boolean.valueOf(true), null, null, null, null},
-			{Type.ADD_ENTRY, "TEST[0,0]", Long.valueOf(0), EntryGenerator.create(0, 0), Boolean.valueOf(true), null, null, null, null},
-			{Type.ADD_ENTRY, null, Long.valueOf(1), null, Boolean.valueOf(false), null, null, null, null},
-			{Type.ADD_ENTRY, "Invalid entry", Long.valueOf(1), EntryGenerator.create("Invalid entry"), Boolean.valueOf(false), null, null, null, null},
+			{Type.ADD_ENTRY, "Keys and values must be >= 0", L(-1), EntryGenerator.create(-1, 0), B(true), null, null, null, null},
+			{Type.ADD_ENTRY, "TEST[0,0]", L(0), EntryGenerator.create(0, 0), B(true), null, null, null, null},
+			{Type.ADD_ENTRY, null, L(1), null, B(false), null, null, null, null},
+			{Type.ADD_ENTRY, "Invalid entry", L(1), EntryGenerator.create("Invalid entry"), B(false), null, null, null, null},
 			// type, expected, ledgerId, null, corruptedLog, entryId, entry location, null, corruptedSize
-			{Type.READ_ENTRY, null, Long.valueOf(-1), null, Boolean.valueOf(false), Long.valueOf(0), Long.valueOf(-1), null, Boolean.valueOf(false)},
-			{Type.READ_ENTRY, "TEST[0,0]", Long.valueOf(0), null, Boolean.valueOf(false), Long.valueOf(0), null, null, Boolean.valueOf(false)},
-			{Type.READ_ENTRY, null, Long.valueOf(0), null, Boolean.valueOf(false), Long.valueOf(-1), Long.valueOf(0), null, Boolean.valueOf(false)},
-			{Type.READ_ENTRY, null, Long.valueOf(1), null, Boolean.valueOf(false), Long.valueOf(1), Long.valueOf(1), null, Boolean.valueOf(false)},
-			{Type.READ_ENTRY, "Short read from entrylog 0", Long.valueOf(0), null, Boolean.valueOf(true), Long.valueOf(0), null, null, Boolean.valueOf(false)},
-			{Type.READ_ENTRY, "Short read for 0@0 in 0@1028(0!=25)", Long.valueOf(0), null, Boolean.valueOf(false), Long.valueOf(0), null, null, Boolean.valueOf(true)},
-			// type, expected, null, null, null, null, null, entryLogId, null
-			{Type.EXTRACT_METADATA, null, null, null, null, null, null, Long.valueOf(-1), null},
+			{Type.READ_ENTRY, null, L(-1), null, B(false), L(0), L(-1), null, B(false)},
+			{Type.READ_ENTRY, "TEST[0,0]", L(0), null, B(false), L(0), null, null, B(false)},
+			{Type.READ_ENTRY, null, L(0), null, B(false), L(-1), L(0), null, B(false)},
+			{Type.READ_ENTRY, null, L(1), null, B(false), L(1), L(1), null, B(false)},
+			{Type.READ_ENTRY, "Short read from entrylog 0", L(0), null, B(true), L(0), null, null, B(false)},
+			{Type.READ_ENTRY, "Short read for 0@0 in 0@1028(0!=25)", L(0), null, B(false), L(0), null, null, B(true)},
+			// type, expected, hdrVersion, null, lmSubLedgers, lmLedgerId, lmEntryId, entryLogId, lmOutOfBound
+			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(-1), B(false)},
 			{Type.EXTRACT_METADATA, "{ totalSize = 29, remainingSize = 29, ledgersMap = ConcurrentLongLongHashMap{0 => 29} }",
-					null, null, null, null, null, Long.valueOf(0), null},
-			{Type.EXTRACT_METADATA, null, null, null, null, null, null, Long.valueOf(1), null},
+					null, null, B(false), null, null, L(0), B(false)},
+			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(1), B(false)},
+			{Type.EXTRACT_METADATA, "Old log file header without ledgers map on entryLogId 0", L(0), null, B(false), null, null, L(0), B(false)},
+			{Type.EXTRACT_METADATA, "Cannot deserialize ledgers map from ledger 0", null, null, B(false), L(0), null, L(0), B(false)},
+			{Type.EXTRACT_METADATA, "Cannot deserialize ledgers map from entryId 0", null, null, B(false), null, L(0), L(0), B(false)},
+			{Type.EXTRACT_METADATA, "Invalid entry size when reading ledgers map", null, null, B(true), null, null, L(0), B(false)},
+			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(0), B(true)},
 		});
 	}
 	
-	public DefaultEntryLoggerTest(Type type, String expected, Long ledgerId, ByteBuf bb, 
-			Boolean boolParam1, Long entryId, Long entryLocation, Long entryLogId, Boolean boolParam2) throws Exception {
+	public DefaultEntryLoggerTest(Type type, String expected, Long longParam1, ByteBuf bb, 
+			Boolean boolParam1, Long longParam2, Long longParam3, Long longParam4, Boolean boolParam2) throws Exception {
 		if (type == Type.ADD_ENTRY)
-			configure(type, expected, ledgerId, bb, boolParam1);
+			configure(type, expected, longParam1, bb, boolParam1);
 		else if (type == Type.READ_ENTRY)
-			configure(type, expected, ledgerId, boolParam1, entryId, entryLocation, boolParam2);
+			configure(type, expected, longParam1, boolParam1, longParam2, longParam3, boolParam2);
 		else
-			configure(type, expected, entryLogId);
+			configure(type, expected, longParam1, boolParam1.booleanValue(), 
+					longParam4, longParam2, longParam3, boolParam2.booleanValue());
 	}
 
 	public void configure(Type type, String expected, Long ledgerId,
@@ -153,11 +173,13 @@ public class DefaultEntryLoggerTest {
 		entryLogger.flush();
 	}
 	
-	private void configure(Type type, String expected, Long entryLogId) throws Exception {
+	private void configure(Type type, String expected, Long hdrVersion, boolean lmSubLedgers, 
+			Long entryLogId, Long lmLedgerId, Long lmEntryId, boolean lmOutOfBound) throws Exception {
 		this.type = type;
 		this.expected = expected;
+		this.lmSubLedgers = lmSubLedgers;
 		this.entryLogId = entryLogId.longValue();
-		
+		this.lmOutOfBound = lmOutOfBound;
 
 		ServerConfiguration conf = new ServerConfiguration();
 		prepareEnv(conf);
@@ -171,6 +193,99 @@ public class DefaultEntryLoggerTest {
         entryLogManager.createNewLog(0);
         entryLogManager.flush();
         realEntryLogId = DefaultEntryLogger.logIdForOffset(realLocation);
+        
+        if (hdrVersion != null) {
+        	this.hdrVersion = hdrVersion;
+        	setHeaderVersion();
+        }
+        
+        long offset = (getLedgerMapOffset());
+        
+        if (lmLedgerId != null) {
+        	this.lmLedgerId = lmLedgerId;
+        	setLedgerIdInLedgerMap(offset);
+        }
+        
+        if (lmEntryId != null) {
+        	this.lmEntryId = lmEntryId;
+        	setEntryIdInLedgerMap(offset);
+        }
+        
+        if (this.lmSubLedgers)
+        	subtractLedgersInLedgerMap(offset);
+        
+        if (this.lmOutOfBound)
+        	corruptLedgerMapOffset(offset);
+	}
+	
+	private void corruptLedgerMapOffset(long offset) throws FileNotFoundException, IOException {
+		File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
+        RandomAccessFile raf = new RandomAccessFile(fileLog, "rw");
+        try {
+            raf.seek(offset);
+            int size = raf.readInt();
+            raf.seek(DefaultEntryLogger.HEADER_VERSION_POSITION + 4);
+            raf.writeLong(offset + size);
+        } finally {
+            raf.close();
+        }
+	}
+	
+	private void subtractLedgersInLedgerMap(long offset) throws FileNotFoundException, IOException {
+		File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
+        RandomAccessFile raf = new RandomAccessFile(fileLog, "rw");
+        try {
+            raf.seek(offset + 4 + 8 + 8);
+            int ledgersNum = raf.readInt();
+            raf.seek(offset + 4 + 8 + 8);
+            raf.writeInt(ledgersNum - 1);
+        } finally {
+            raf.close();
+        }
+	}
+	
+	private void setEntryIdInLedgerMap(long offset) throws FileNotFoundException, IOException {
+		File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
+        RandomAccessFile raf = new RandomAccessFile(fileLog, "rw");
+        try {
+            raf.seek(offset + 4 + 8);
+            raf.writeLong(lmEntryId);
+        } finally {
+            raf.close();
+        }
+	}
+	
+	private void setLedgerIdInLedgerMap(long offset) throws FileNotFoundException, IOException {
+		File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
+        RandomAccessFile raf = new RandomAccessFile(fileLog, "rw");
+        try {
+            raf.seek(offset + 4);
+            raf.writeLong(lmLedgerId);
+        } finally {
+            raf.close();
+        }
+	}
+	
+	private long getLedgerMapOffset() throws FileNotFoundException, IOException {
+		File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
+        RandomAccessFile raf = new RandomAccessFile(fileLog, "rw");
+        try {
+            raf.seek(DefaultEntryLogger.HEADER_VERSION_POSITION + 4);
+            return raf.readLong();
+        } finally {
+            raf.close();
+        }
+	}
+	
+	private void setHeaderVersion() throws FileNotFoundException, IOException {
+		File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
+        RandomAccessFile raf = new RandomAccessFile(fileLog, "rw");
+        try {
+            raf.seek(DefaultEntryLogger.HEADER_VERSION_POSITION);
+            raf.writeLong(this.hdrVersion.longValue());
+        } finally {
+            raf.close();
+        }
 	}
 	
 	private void prepareEnv(ServerConfiguration conf) throws IOException {
@@ -261,8 +376,14 @@ public class DefaultEntryLoggerTest {
 	@Test
     public void extractEntryLogMetadataFromIndexTest() throws IOException {
 		assumeTrue(type == Type.EXTRACT_METADATA);
-		// in configure() we create a new log with id 0L
-		if (entryLogId == realEntryLogId) {
+		if (lmOutOfBound) {
+			assertThrows(IOException.class,
+					     () -> entryLogger.extractEntryLogMetadataFromIndex(entryLogId));
+		} else if (hdrVersion != null || lmLedgerId != null || lmEntryId != null || lmSubLedgers) {
+			Exception e = assertThrows(IOException.class,
+									   () -> entryLogger.extractEntryLogMetadataFromIndex(entryLogId));
+			assertEquals(expected, e.getMessage());
+		} else if (entryLogId == realEntryLogId) { // in configure() we have created a new log with id 0L
 	        EntryLogMetadata entryLogMeta =  entryLogger.extractEntryLogMetadataFromIndex(entryLogId);
 	        assertEquals(expected, entryLogMeta.toString());
 	    // when we add an entry the files '0.log' and '1.log' are created
