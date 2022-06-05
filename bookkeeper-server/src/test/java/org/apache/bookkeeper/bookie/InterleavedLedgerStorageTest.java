@@ -12,9 +12,12 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
+import org.apache.bookkeeper.bookie.LedgerCache.PageEntriesIterable;
+import org.apache.bookkeeper.bookie.LedgerStorage.DetectedInconsistency;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.server.conf.BookieConfiguration;
 import org.apache.bookkeeper.server.service.StatsProviderService;
@@ -27,6 +30,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import com.google.common.util.concurrent.RateLimiter;
 
@@ -46,15 +52,17 @@ public class InterleavedLedgerStorageTest {
 	
 	// common tests parameters
 	private String expected;
+	private long ledgerId;
+	private boolean corruptEntry;
 
 	// getEntry parameters
-	private long ledgerId;
 	private long entryToBeGot;
 	private long entryToAdd;
-	private boolean corruptEntry;
 	
 	// localConsistencyCheck parameters
+	private long entryId;
 	private Optional<RateLimiter> rateLimiter;
+	private boolean corruptCheck;
 	
 	// utility functions
 	private static long L(long l) {
@@ -68,33 +76,37 @@ public class InterleavedLedgerStorageTest {
 	@Parameters
 	public static Collection<Object[]> data() {
 		return Arrays.asList(new Object[][] {
-			// type, expected, ledgerId, entryToBeGot, null, entryToAdd, corruptEntry
-			{Type.GET_ENTRY, null, L(-1), L(0), null, L(0), B(false)},
-			{Type.GET_ENTRY, "TEST[0,1]", L(0), L(1),  null, L(1), B(false)},
-			{Type.GET_ENTRY, "TEST[1,1]", L(1), L(-1), null, L(-1), B(false)},
-			{Type.GET_ENTRY, null, L(0), L(1),  null, L(0), B(false)},
-			{Type.GET_ENTRY, null, L(0), L(0),  null, L(0), B(true)},
-			// type, expected, null, null, rateLimiter, null, null
-			{Type.CONSISTENCY_CHECK, "[]", null, null, null, null, null},
-			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(1)), null, null},
+			// type, expected, ledgerId, entryToBeGot, null, entryToAdd, corruptEntry, null
+			{Type.GET_ENTRY, null, L(-1), L(0), null, L(0), B(false), null},
+			{Type.GET_ENTRY, "TEST[0,1]", L(0), L(1),  null, L(1), B(false), null},
+			{Type.GET_ENTRY, "TEST[1,1]", L(1), L(-1), null, L(-1), B(false), null},
+			{Type.GET_ENTRY, null, L(0), L(1),  null, L(0), B(false), null},
+			{Type.GET_ENTRY, null, L(0), L(0),  null, L(0), B(true), null},
+			// type, expected, ledgerId, entryId, rateLimiter, null, corruptEntry, corruptCheck
+			{Type.CONSISTENCY_CHECK, null, L(0), L(0), null, null, B(false), B(false)},
+			{Type.CONSISTENCY_CHECK, "[]", L(1), L(0), Optional.of(RateLimiter.create(1)), null, B(false), B(false)},
+			{Type.CONSISTENCY_CHECK, null, L(1), L(2), Optional.of(RateLimiter.create(0.1)), null, B(true), B(false)},
+			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(0.0001)), null, B(false), B(false)},
+			{Type.CONSISTENCY_CHECK, "[]", L(0), L(2), Optional.of(RateLimiter.create(10)), null, B(false), B(true)},
 		});
 	}
 	
 	public InterleavedLedgerStorageTest(Type type, String expected, Long longParam1, Long longParam2,
-			Optional<RateLimiter> rateLimiter, Long longParam3, Boolean boolParam1) throws Exception {
+			Optional<RateLimiter> rateLimiter, Long longParam3, Boolean boolParam1, Boolean boolParam2) throws Exception {
 		if (type == Type.GET_ENTRY)
 			configure(type, expected, longParam1, longParam2, longParam3, boolParam1);
 		else
-			configure(type, expected, rateLimiter);
+			configure(type, expected, longParam1, longParam2, rateLimiter, boolParam1, boolParam2);
 	}
 	
-	public void configure(Type type, String expected, Long ledgerId, Long entryToBeGot, Long entryToAdd, Boolean corruptEntry) {
+	public void configure(Type type, String expected, Long ledgerId, Long entryToBeGot, 
+			Long entryToAdd, Boolean corruptEntry) {
 		this.type = type;
 		this.expected = expected;
 		this.ledgerId = ledgerId.longValue();
 		this.entryToBeGot = entryToBeGot.longValue();
 		this.corruptEntry = corruptEntry.booleanValue();
-		
+
 		try {
 			storage = new InterleavedLedgerStorage();
 			initializeStorage(storage);
@@ -106,21 +118,66 @@ public class InterleavedLedgerStorageTest {
 			storage.setMasterKey(ledgerId, "testKey".getBytes());
 			storage.addEntry(entry);
 			storage.flush();
-			
+	
 			if (this.corruptEntry)
-				incEntryId();
-		} catch(Exception e) {
+		        incEntryId();
+		} catch (Exception e) {
 			// do nothing
 		}
 	}
 	
-	public void configure(Type type, String expected, Optional<RateLimiter> rateLimiter) throws Exception {
+	public void configure(Type type, String expected, Long ledgerId, Long entryId,
+			Optional<RateLimiter> rateLimiter,  Boolean corruptEntry, Boolean corruptCheck) throws Exception {
 		this.type = type;
 		this.expected = expected;
 		this.rateLimiter = rateLimiter;
+		this.corruptEntry = corruptEntry.booleanValue();
+		this.corruptCheck = corruptCheck.booleanValue();
 		
 		storage = new InterleavedLedgerStorage();
 		initializeStorage(storage);
+		
+		if (ledgerId != null && entryId != null) {
+			// avoid addEntry method exceptions
+			this.ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
+			this.entryId = (entryId < 0) ? -entryId : entryId;
+		} else {
+			this.ledgerId = 0L;
+			this.entryId = 0L;
+		}
+		// add entry
+		entry = EntryGenerator.create(this.ledgerId, this.entryId);
+		storage.setMasterKey(this.ledgerId, "testKey".getBytes());
+		storage.addEntry(entry);
+		storage.flush();
+	
+		if (this.corruptEntry)
+	        incEntryId();
+		
+		if (ledgerId == null || entryId == null) {
+			LedgerCache ledgerCache = Mockito.spy(storage.ledgerCache);
+			PageEntriesIterable pages = storage.ledgerCache.listEntries(this.ledgerId);
+			Mockito.doAnswer(new Answer<PageEntriesIterable>() {
+				@Override
+				public PageEntriesIterable answer(InvocationOnMock invocation) throws Throwable {
+					storage.deleteLedger(0L);
+					return pages;
+				}
+			}).when(ledgerCache).listEntries(Mockito.anyLong());
+			storage.ledgerCache = ledgerCache;
+			this.entryId = -1L;
+		} else if (corruptCheck) {
+			DefaultEntryLogger entryLogger = Mockito.spy(storage.entryLogger);
+			Mockito.doAnswer(new Answer<Void>() {
+				@Override
+				public Void answer(InvocationOnMock invocation) throws Throwable {
+					storage.deleteLedger(ledgerId.longValue());
+					throw new DefaultEntryLogger.EntryLookupException("Mocked checkEntry");
+				}
+			}).when(entryLogger).checkEntry(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong());
+			storage.entryLogger = entryLogger;
+		}
+		
 	}
 	
 	private void incEntryId() throws IOException {
@@ -185,7 +242,20 @@ public class InterleavedLedgerStorageTest {
 	@Test
 	public void localConsistencyCheckTest() throws IOException {
 		assumeTrue(type == Type.CONSISTENCY_CHECK);
-		assertEquals(expected, storage.localConsistencyCheck(rateLimiter).toString());
+		if (entryId == -1L || corruptCheck) {
+			assertEquals(expected, storage.localConsistencyCheck(rateLimiter).toString());
+		} else if (corruptEntry) {
+			List<DetectedInconsistency> list = storage.localConsistencyCheck(rateLimiter);
+			assertEquals(1, list.size());
+			DetectedInconsistency error = list.get(0);
+			assertEquals(ledgerId, error.getLedgerId());
+			assertEquals(entryId, error.getEntryId());
+		} else if (rateLimiter != null) {
+			assertEquals(expected, storage.localConsistencyCheck(rateLimiter).toString());
+		} else {
+			assertThrows(IOException.class,
+					 	 () -> storage.localConsistencyCheck(rateLimiter));
+		}
 	}
 	
 	@After
