@@ -74,6 +74,7 @@ public class DefaultEntryLoggerTest {
 	private Long lmEntryId;
 	private boolean lmSubLedgers;
 	private boolean lmOutOfBound;
+	private boolean lmMaxOffset;
 	// helpful
 	private long realEntryLogId;
 	
@@ -91,40 +92,42 @@ public class DefaultEntryLoggerTest {
 		return Arrays.asList(new Object[][] {
 			/* README: all columns named as 'null' are not considered parameters for the corresponding test */
 
-			// type, expected, ledgerId, entry, valid param, null, null, null, null
-			{Type.ADD_ENTRY, "Keys and values must be >= 0", L(-1), EntryGenerator.create(-1, 0), B(true), null, null, null, null},
-			{Type.ADD_ENTRY, "TEST[0,0]", L(0), EntryGenerator.create(0, 0), B(true), null, null, null, null},
-			{Type.ADD_ENTRY, null, L(1), null, B(false), null, null, null, null},
-			{Type.ADD_ENTRY, "Invalid entry", L(1), EntryGenerator.create("Invalid entry"), B(false), null, null, null, null},
-			// type, expected, ledgerId, null, corruptedLog, entryId, entry location, null, corruptedSize
-			{Type.READ_ENTRY, null, L(-1), null, B(false), L(0), L(-1), null, B(false)},
-			{Type.READ_ENTRY, "TEST[0,0]", L(0), null, B(false), L(0), null, null, B(false)},
-			{Type.READ_ENTRY, null, L(0), null, B(false), L(-1), L(0), null, B(false)},
-			{Type.READ_ENTRY, null, L(1), null, B(false), L(1), L(1), null, B(false)},
-			{Type.READ_ENTRY, "Short read from entrylog 0", L(0), null, B(true), L(0), null, null, B(false)},
-			{Type.READ_ENTRY, "Short read for 0@0 in 0@1028(0!=25)", L(0), null, B(false), L(0), null, null, B(true)},
-			// type, expected, hdrVersion, null, lmSubLedgers, lmLedgerId, lmEntryId, entryLogId, lmOutOfBound
-			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(-1), B(false)},
-			{Type.EXTRACT_METADATA, "{ totalSize = 29, remainingSize = 29, ledgersMap = ConcurrentLongLongHashMap{0 => 29} }",
-					null, null, B(false), null, null, L(0), B(false)},
-			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(1), B(false)},
-			{Type.EXTRACT_METADATA, "Old log file header without ledgers map on entryLogId 0", L(0), null, B(false), null, null, L(0), B(false)},
-			{Type.EXTRACT_METADATA, "Cannot deserialize ledgers map from ledger 0", null, null, B(false), L(0), null, L(0), B(false)},
-			{Type.EXTRACT_METADATA, "Cannot deserialize ledgers map from entryId 0", null, null, B(false), null, L(0), L(0), B(false)},
-			{Type.EXTRACT_METADATA, "Invalid entry size when reading ledgers map", null, null, B(true), null, null, L(0), B(false)},
-			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(0), B(true)},
+			// type, expected, ledgerId, entry, valid param, null, null, null, null, null
+			{Type.ADD_ENTRY, "Keys and values must be >= 0", L(-1), EntryGenerator.create(-1, 0), B(true), null, null, null, null, null},
+			{Type.ADD_ENTRY, "TEST[0,0]", L(0), EntryGenerator.create(0, 0), B(true), null, null, null, null, null},
+			{Type.ADD_ENTRY, null, L(1), null, B(false), null, null, null, null, null},
+			{Type.ADD_ENTRY, "Invalid entry", L(1), EntryGenerator.create("Invalid entry"), B(false), null, null, null, null, null},
+			// type, expected, ledgerId, null, corruptedLog, entryId, entry location, null, corruptedSize, null
+			{Type.READ_ENTRY, null, L(-1), null, B(false), L(0), L(-1), null, B(false), null},
+			{Type.READ_ENTRY, "TEST[0,0]", L(0), null, B(false), L(0), null, null, B(false), null},
+			{Type.READ_ENTRY, null, L(0), null, B(false), L(-1), L(0), null, B(false), null},
+			{Type.READ_ENTRY, null, L(1), null, B(false), L(1), L(1), null, B(false), null},
+			{Type.READ_ENTRY, "Short read from entrylog 0", L(0), null, B(true), L(0), null, null, B(false), null},
+			{Type.READ_ENTRY, "Short read for 0@0 in 0@1028(0!=25)", L(0), null, B(false), L(0), null, null, B(true), null},
+			// type, expected, hdrVersion, null, lmSubLedgers, lmLedgerId, lmEntryId, entryLogId, lmOutOfBound, lmMaxOffset
+			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(-1), B(false), B(false)},
+			{Type.EXTRACT_METADATA, "{ totalSize = 58, remainingSize = 58, ledgersMap = ConcurrentLongLongHashMap{0 => 58} }",
+					null, null, B(false), null, null, L(0), B(false), B(false)},
+			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(1), B(false), B(false)},
+			{Type.EXTRACT_METADATA, "Old log file header without ledgers map on entryLogId 0", L(0), null, B(false), null, null, L(0), B(false), B(false)},
+			{Type.EXTRACT_METADATA, "Cannot deserialize ledgers map from ledger 0", null, null, B(false), L(0), null, L(0), B(false), B(false)},
+			{Type.EXTRACT_METADATA, "Cannot deserialize ledgers map from entryId 0", null, null, B(false), null, L(0), L(0), B(false), B(false)},
+			{Type.EXTRACT_METADATA, "Invalid entry size when reading ledgers map", null, null, B(true), null, null, L(0), B(false), B(false)},
+			{Type.EXTRACT_METADATA, null, null, null, B(false), null, null, L(0), B(true), B(false)},
+			{Type.EXTRACT_METADATA, "Not all ledgers were found in ledgers map index. expected: 1 -- found: 0 -- entryLogId: 0",
+					null, null, B(false), null, null, L(0), B(false), B(true)},
 		});
 	}
 	
-	public DefaultEntryLoggerTest(Type type, String expected, Long longParam1, ByteBuf bb, 
-			Boolean boolParam1, Long longParam2, Long longParam3, Long longParam4, Boolean boolParam2) throws Exception {
+	public DefaultEntryLoggerTest(Type type, String expected, Long longParam1, ByteBuf bb, Boolean boolParam1,
+			Long longParam2, Long longParam3, Long longParam4, Boolean boolParam2, Boolean boolParam3) throws Exception {
 		if (type == Type.ADD_ENTRY)
 			configure(type, expected, longParam1, bb, boolParam1);
 		else if (type == Type.READ_ENTRY)
 			configure(type, expected, longParam1, boolParam1, longParam2, longParam3, boolParam2);
 		else
-			configure(type, expected, longParam1, boolParam1.booleanValue(), 
-					longParam4, longParam2, longParam3, boolParam2.booleanValue());
+			configure(type, expected, longParam1, boolParam1, longParam4, longParam2, 
+					longParam3, boolParam2, boolParam3);
 	}
 
 	public void configure(Type type, String expected, Long ledgerId,
@@ -173,13 +176,14 @@ public class DefaultEntryLoggerTest {
 		entryLogger.flush();
 	}
 	
-	private void configure(Type type, String expected, Long hdrVersion, boolean lmSubLedgers, 
-			Long entryLogId, Long lmLedgerId, Long lmEntryId, boolean lmOutOfBound) throws Exception {
+	private void configure(Type type, String expected, Long hdrVersion, boolean lmSubLedgers, Long entryLogId,
+			Long lmLedgerId, Long lmEntryId, boolean lmOutOfBound, boolean lmMaxOffset) throws Exception {
 		this.type = type;
 		this.expected = expected;
 		this.lmSubLedgers = lmSubLedgers;
 		this.entryLogId = entryLogId.longValue();
 		this.lmOutOfBound = lmOutOfBound;
+		this.lmMaxOffset = lmMaxOffset;
 
 		ServerConfiguration conf = new ServerConfiguration();
 		prepareEnv(conf);
@@ -187,6 +191,8 @@ public class DefaultEntryLoggerTest {
 		entryLogger = new DefaultEntryLogger(conf, bookie.getLedgerDirsManager());
 		// add entry "TEST[0,0]"
 		realLocation = entryLogger.addEntry(0, EntryGenerator.create(0, 0).nioBuffer());
+		// add entry "TEST[0,1]"
+		realLocation = entryLogger.addEntry(0, EntryGenerator.create(0, 1).nioBuffer());
 		entryLogger.flush();
 		// create log
 		EntryLogManagerBase entryLogManager = (EntryLogManagerBase) entryLogger.getEntryLogManager();
@@ -214,18 +220,18 @@ public class DefaultEntryLoggerTest {
         if (this.lmSubLedgers)
         	subtractLedgersInLedgerMap(offset);
         
-        if (this.lmOutOfBound)
-        	corruptLedgerMapOffset(offset);
+        if (this.lmOutOfBound || this.lmMaxOffset)
+        	corruptLedgerMapOffset(offset, this.lmMaxOffset);
 	}
 	
-	private void corruptLedgerMapOffset(long offset) throws FileNotFoundException, IOException {
+	private void corruptLedgerMapOffset(long offset, boolean maxSize) throws FileNotFoundException, IOException {
 		File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
         RandomAccessFile raf = new RandomAccessFile(fileLog, "rw");
         try {
             raf.seek(offset);
-            int size = raf.readInt();
-            raf.seek(DefaultEntryLogger.HEADER_VERSION_POSITION + 4);
-            raf.writeLong(offset + size);
+            long newOffset = (maxSize) ? Long.MAX_VALUE : offset + raf.readInt();
+            raf.seek(DefaultEntryLogger.LEDGERS_MAP_OFFSET_POSITION);
+            raf.writeLong(newOffset);
         } finally {
             raf.close();
         }
@@ -270,7 +276,7 @@ public class DefaultEntryLoggerTest {
 		File fileLog = new File(ledgerDir.getAbsolutePath() + "/current/0.log");
         RandomAccessFile raf = new RandomAccessFile(fileLog, "rw");
         try {
-            raf.seek(DefaultEntryLogger.HEADER_VERSION_POSITION + 4);
+            raf.seek(DefaultEntryLogger.LEDGERS_MAP_OFFSET_POSITION);
             return raf.readLong();
         } finally {
             raf.close();
@@ -378,10 +384,10 @@ public class DefaultEntryLoggerTest {
 		assumeTrue(type == Type.EXTRACT_METADATA);
 		if (lmOutOfBound) {
 			assertThrows(IOException.class,
-					     () -> entryLogger.extractEntryLogMetadataFromIndex(entryLogId));
-		} else if (hdrVersion != null || lmLedgerId != null || lmEntryId != null || lmSubLedgers) {
+					     () -> entryLogger.extractEntryLogMetadataFromIndex(realEntryLogId));
+		} else if (hdrVersion != null || lmLedgerId != null || lmEntryId != null || lmSubLedgers || lmMaxOffset) {
 			Exception e = assertThrows(IOException.class,
-									   () -> entryLogger.extractEntryLogMetadataFromIndex(entryLogId));
+									   () -> entryLogger.extractEntryLogMetadataFromIndex(realEntryLogId));
 			assertEquals(expected, e.getMessage());
 		} else if (entryLogId == realEntryLogId) { // in configure() we have created a new log with id 0L
 	        EntryLogMetadata entryLogMeta =  entryLogger.extractEntryLogMetadataFromIndex(entryLogId);

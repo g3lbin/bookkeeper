@@ -76,6 +76,8 @@ public class InterleavedLedgerStorageTest {
 	@Parameters
 	public static Collection<Object[]> data() {
 		return Arrays.asList(new Object[][] {
+			/* README: all columns named as 'null' are not considered parameters for the corresponding test */
+
 			// type, expected, ledgerId, entryToBeGot, null, entryToAdd, corruptEntry, null
 			{Type.GET_ENTRY, null, L(-1), L(0), null, L(0), B(false), null},
 			{Type.GET_ENTRY, "TEST[0,1]", L(0), L(1),  null, L(1), B(false), null},
