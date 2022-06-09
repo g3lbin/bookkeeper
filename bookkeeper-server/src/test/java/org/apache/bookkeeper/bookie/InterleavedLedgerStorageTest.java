@@ -58,6 +58,7 @@ public class InterleavedLedgerStorageTest {
 	// getEntry parameters
 	private long entryToBeGot;
 	private long entryToAdd;
+	private Long lastEntry;
 	
 	// localConsistencyCheck parameters
 	private long entryId;
@@ -78,36 +79,38 @@ public class InterleavedLedgerStorageTest {
 		return Arrays.asList(new Object[][] {
 			/* README: all columns named as 'null' are not considered parameters for the corresponding test */
 
-			// type, expected, ledgerId, entryToBeGot, null, entryToAdd, corruptEntry, null
-			{Type.GET_ENTRY, null, L(-1), L(0), null, L(0), B(false), null},
-			{Type.GET_ENTRY, "TEST[0,1]", L(0), L(1),  null, L(1), B(false), null},
-			{Type.GET_ENTRY, "TEST[1,1]", L(1), L(-1), null, L(-1), B(false), null},
-			{Type.GET_ENTRY, null, L(0), L(1),  null, L(0), B(false), null},
-			{Type.GET_ENTRY, null, L(0), L(0),  null, L(0), B(true), null},
-			// type, expected, ledgerId, entryId, rateLimiter, null, corruptEntry, corruptCheck
-			{Type.CONSISTENCY_CHECK, null, L(0), L(0), null, null, B(false), B(false)},
-			{Type.CONSISTENCY_CHECK, "[]", L(1), L(0), Optional.of(RateLimiter.create(1)), null, B(false), B(false)},
-			{Type.CONSISTENCY_CHECK, null, L(1), L(2), Optional.of(RateLimiter.create(0.1)), null, B(true), B(false)},
-			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(0.0001)), null, B(false), B(false)},
-			{Type.CONSISTENCY_CHECK, "[]", L(0), L(2), Optional.of(RateLimiter.create(10)), null, B(false), B(true)},
+			// type, expected, ledgerId, entryToBeGot, null, entryToAdd, corruptEntry, null, lastEntry
+			{Type.GET_ENTRY, null, L(-1), L(0), null, L(0), B(false), null, null},
+			{Type.GET_ENTRY, "TEST[0,1]", L(0), L(1),  null, L(1), B(false), null, null},
+			{Type.GET_ENTRY, "TEST[1,1]", L(1), L(-1), null, L(-1), B(false), null, null},
+			{Type.GET_ENTRY, null, L(0), L(1), null, L(0), B(false), null, null},
+			{Type.GET_ENTRY, null, L(0), L(0), null, L(0), B(true), null, null},
+			{Type.GET_ENTRY, null, L(0), L(-1), null, L(0), B(false), null, L(2)},
+			// type, expected, ledgerId, entryId, rateLimiter, null, corruptEntry, corruptCheck, null
+			{Type.CONSISTENCY_CHECK, null, L(0), L(0), null, null, B(false), B(false), null},
+			{Type.CONSISTENCY_CHECK, "[]", L(1), L(0), Optional.of(RateLimiter.create(1)), null, B(false), B(false), null},
+			{Type.CONSISTENCY_CHECK, null, L(1), L(2), Optional.of(RateLimiter.create(0.1)), null, B(true), B(false), null},
+			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(0.0001)), null, B(false), B(false), null},
+			{Type.CONSISTENCY_CHECK, "[]", L(0), L(2), Optional.of(RateLimiter.create(10)), null, B(false), B(true), null},
 		});
 	}
 	
 	public InterleavedLedgerStorageTest(Type type, String expected, Long longParam1, Long longParam2,
-			Optional<RateLimiter> rateLimiter, Long longParam3, Boolean boolParam1, Boolean boolParam2) throws Exception {
+			Optional<RateLimiter> rateLimiter, Long longParam3, Boolean boolParam1, Boolean boolParam2, Long longParam4) throws Exception {
 		if (type == Type.GET_ENTRY)
-			configure(type, expected, longParam1, longParam2, longParam3, boolParam1);
+			configure(type, expected, longParam1, longParam2, longParam3, boolParam1, longParam4);
 		else
 			configure(type, expected, longParam1, longParam2, rateLimiter, boolParam1, boolParam2);
 	}
 	
 	public void configure(Type type, String expected, Long ledgerId, Long entryToBeGot, 
-			Long entryToAdd, Boolean corruptEntry) {
+			Long entryToAdd, Boolean corruptEntry, Long lastEntry) {
 		this.type = type;
 		this.expected = expected;
 		this.ledgerId = ledgerId.longValue();
 		this.entryToBeGot = entryToBeGot.longValue();
 		this.corruptEntry = corruptEntry.booleanValue();
+		this.lastEntry = lastEntry;
 
 		try {
 			storage = new InterleavedLedgerStorage();
@@ -116,11 +119,17 @@ public class InterleavedLedgerStorageTest {
 			ledgerId = (ledgerId < 0) ? -ledgerId : ledgerId;
 			this.entryToAdd = (entryToAdd < 0) ? -entryToAdd : entryToAdd;
 			// add entry
-			entry = EntryGenerator.create(ledgerId, entryToAdd);
+			entry = EntryGenerator.create(ledgerId.longValue(), this.entryToAdd);
 			storage.setMasterKey(ledgerId, "testKey".getBytes());
 			storage.addEntry(entry);
 			storage.flush();
-	
+			
+			if (lastEntry != null) {
+				LedgerCache ledgerCache = Mockito.spy(storage.ledgerCache);
+				Mockito.doReturn(lastEntry.longValue()).when(ledgerCache).getLastEntry(Mockito.anyLong());
+				storage.ledgerCache = ledgerCache;
+			}
+
 			if (this.corruptEntry)
 		        incEntryId();
 		} catch (Exception e) {
@@ -152,6 +161,17 @@ public class InterleavedLedgerStorageTest {
 		storage.setMasterKey(this.ledgerId, "testKey".getBytes());
 		storage.addEntry(entry);
 		storage.flush();
+		
+		if (!this.corruptCheck && ledgerId != null && entryId != null) {
+			entry = EntryGenerator.create(this.ledgerId, this.entryId + 1);
+			storage.addEntry(entry);
+			storage.flush();
+			
+			entry = EntryGenerator.create(this.ledgerId + 1, this.entryId);
+			storage.setMasterKey(this.ledgerId + 1, "testKey".getBytes());
+			storage.addEntry(entry);
+			storage.flush();
+		}
 	
 		if (this.corruptEntry)
 	        incEntryId();
@@ -224,7 +244,8 @@ public class InterleavedLedgerStorageTest {
 		if (corruptEntry) {
 			assertThrows(IOException.class,
 						 () -> storage.getEntry(ledgerId, entryToBeGot));
-		} else if (entryToAdd != entryToBeGot) {
+		} else if ((entryToAdd != entryToBeGot && entryToBeGot != -1) ||
+				(lastEntry != null && lastEntry.longValue() != entryToBeGot)) {
 			assertThrows(Bookie.NoEntryException.class,
 						 () -> storage.getEntry(ledgerId, entryToBeGot));
 		} else if (ledgerId < 0) {
