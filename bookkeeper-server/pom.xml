@@ -412,5 +412,52 @@
         </plugins>
       </build>
     </profile>
+    <!-- PIT profile -->
+    <profile>
+      <id>mutation-coverage</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+
+      <properties>
+        <pit.version>1.8.0</pit.version>
+        <withHistory>true</withHistory>
+        <verbose>false</verbose>
+      </properties>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>${pit.version}</version>
+            <configuration>
+              <targetClasses>
+                <param>org.apache.bookkeeper.bookie.DefaultEntryLogger</param>
+                <param>org.apache.bookkeeper.bookie.InterleavedLedgerStorage</param>
+              </targetClasses>
+              <targetTests>
+                <param>org.apache.bookkeeper.bookie.DefaultEntryLoggerTest</param>
+                <param>org.apache.bookkeeper.bookie.InterleavedLedgerStorageTest</param>
+              </targetTests>
+              <avoidCallsTo>
+                <avoidCallsTo>java.util.logging</avoidCallsTo>
+                <avoidCallsTo>org.apache.log4j</avoidCallsTo>
+                <avoidCallsTo>org.slf4j</avoidCallsTo>
+                <avoidCallsTo>org.apache.commons.logging</avoidCallsTo>
+              </avoidCallsTo>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>mutationCoverage</goal>
+                </goals>
+                <phase>test-compile</phase>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 </project>

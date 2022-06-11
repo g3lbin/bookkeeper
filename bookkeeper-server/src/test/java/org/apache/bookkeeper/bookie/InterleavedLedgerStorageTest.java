@@ -88,9 +88,9 @@ public class InterleavedLedgerStorageTest {
 			{Type.GET_ENTRY, null, L(0), L(-1), null, L(0), B(false), null, L(2)},
 			// type, expected, ledgerId, entryId, rateLimiter, null, corruptEntry, corruptCheck, null
 			{Type.CONSISTENCY_CHECK, null, L(0), L(0), null, null, B(false), B(false), null},
-			{Type.CONSISTENCY_CHECK, "[]", L(1), L(0), Optional.of(RateLimiter.create(1)), null, B(false), B(false), null},
-			{Type.CONSISTENCY_CHECK, null, L(1), L(2), Optional.of(RateLimiter.create(0.1)), null, B(true), B(false), null},
-			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(0.0001)), null, B(false), B(false), null},
+			{Type.CONSISTENCY_CHECK, "[]", L(1), L(0), Optional.of(RateLimiter.create(100)), null, B(false), B(false), null},
+			{Type.CONSISTENCY_CHECK, null, L(1), L(2), Optional.of(RateLimiter.create(1000)), null, B(true), B(false), null},
+			{Type.CONSISTENCY_CHECK, "[]", null, null, Optional.of(RateLimiter.create(50)), null, B(false), B(false), null},
 			{Type.CONSISTENCY_CHECK, "[]", L(0), L(2), Optional.of(RateLimiter.create(10)), null, B(false), B(true), null},
 		});
 	}
